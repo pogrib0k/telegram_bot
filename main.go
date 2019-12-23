@@ -19,6 +19,7 @@ func Check(path string) bool {
 	return strings.HasSuffix(path, ".webp")
 }
 
+// CheckText проверяет приколы
 func CheckText(str string) int {
 
 	str = strings.ToLower(str)
