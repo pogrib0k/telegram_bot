@@ -2,35 +2,63 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image/png"
 	"log"
 	"net/http"
-	"strings"
+	"os"
+	"time"
 
+	"github.com/go-pg/pg"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/joho/godotenv"
 	"golang.org/x/image/webp"
 )
 
-// Check делает check, ну шо го ты доволен?! А?!
-func Check(path string) bool {
-	if len(path) == 0 {
-		return false
-	}
-	return strings.HasSuffix(path, ".webp")
+type dbLogger struct{}
+
+func (d dbLogger) BeforeQuery(q *pg.QueryEvent) {
 }
 
-// CheckText проверяет приколы
-func CheckText(str string) int {
+func (d dbLogger) AfterQuery(q *pg.QueryEvent) {
+	fmt.Println(q.FormattedQuery())
+}
 
-	str = strings.ToLower(str)
-	if strings.Contains(str, "ping") {
-		return 1
-	}
-	return 0
+type User struct {
+	ID       int64
+	Name     string
+	Email    string
+	Password string
+}
+
+func (u User) String() string {
+	return fmt.Sprintf("User<%d %s %s %s>", u.ID, u.Name, u.Email, u.Password)
 }
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI("934013449:AAGU3PstPF0F5_HWIFkg3OWi1Ao4uKGguzY")
+
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	db := pg.Connect(&pg.Options{
+		User:     os.Getenv("PSQL_LOGIN"),
+		Password: os.Getenv("PSQL_PASS"),
+		Database: os.Getenv("PSQL_DB"),
+		Addr:     os.Getenv("PSQL_HOST"),
+		OnConnect: func(conn *pg.Conn) error {
+			_, err := conn.Exec("set search_path=?", os.Getenv("PSQL_SCHEMA"))
+			if err != nil {
+				panic(err.Error())
+			}
+			return nil
+		},
+	})
+	db.AddQueryHook(dbLogger{})
+	defer db.Close()
+
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("TG_BOT_TOKEN"))
 	if err != nil {
 		log.Panic(err)
 	}
@@ -43,6 +71,8 @@ func main() {
 	u.Timeout = 60
 
 	updates, err := bot.GetUpdatesChan(u)
+	time.Sleep(time.Second)
+	updates.Clear()
 
 	for update := range updates {
 		if update.Message == nil { // ignore any non-Message Updates
@@ -53,10 +83,81 @@ func main() {
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
 
-		if CheckText(update.Message.Text) == 1 {
-
-			msg = tgbotapi.NewMessage(update.Message.Chat.ID, "pong!")
-			bot.Send(msg)
+		if update.Message.IsCommand() {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+			switch update.Message.Command() {
+			case "ping":
+				msg.Text = "pong"
+			case "register":
+				arg1, arg2 := CutTwoArguments(update.Message.CommandArguments())
+				if arg1 == "" || arg2 == "" {
+					msg.Text = `Неправильно введена команда.
+Правильная форма: ` + "`/register <login> <password>`" + `.
+Логин должен состоять из ` + "`A-Z, a-z, 0-9, _`" + `;
+а пароль должен состоять из ` + "`A-Z, a-z, 0-9, _, *, -, #, $, %, !, @, ^`" + `.`
+					msg.ParseMode = "Markdown"
+					break
+				}
+				user1 := &User{
+					Name:     arg1,
+					Email:    "shit@gogle.net",
+					Password: arg2,
+				}
+				err = db.Insert(user1)
+				if err != nil {
+					pgErr, ok := err.(pg.Error)
+					if ok && pgErr.IntegrityViolation() {
+						msg.Text = "А пользователь уже есть, для вас мест нет (ну по крайней мере под таким логином)."
+					} else {
+						msg.Text = "У вас тротлинг. Сочувствую."
+					}
+					break
+				}
+				msg.Text = fmt.Sprintf("Ваш логин - `%s`, ваш пароль - `%s`. Вас зарегистрировали, поэтому вы ЛОХ.", arg1, arg2)
+				msg.ParseMode = "Markdown"
+			case "login":
+				arg1, arg2 := CutTwoArguments(update.Message.CommandArguments())
+				if arg1 == "" || arg2 == "" {
+					msg.Text = `Неправильно введена команда.
+Правильная форма: ` + "`/login <login> <password>`" + `.
+Логин должен состоять из ` + "`A-Z, a-z, 0-9, _`" + `;
+а пароль должен состоять из ` + "`A-Z, a-z, 0-9, _, *, -, #, $, %, !, @, ^`" + `.`
+					msg.ParseMode = "Markdown"
+					break
+				}
+				user := new(User)
+				err = db.Model(user).Where("name = ? AND password = ?", arg1, arg2).Select()
+				if err != nil {
+					if err == pg.ErrNoRows {
+						audioMessage := tgbotapi.NewVoiceUpload(update.Message.Chat.ID, "tryAgain.mp3")
+						audioMessage.Caption = "Неверный логин или пароль. Попробуй *ЕЩЁ РАЗ*."
+						audioMessage.ParseMode = "Markdown"
+						bot.Send(audioMessage)
+					} else {
+						msg.Text = "У вас тротлинг. Сочувствую."
+					}
+					break
+				}
+				log.Println(user)
+				msg.Text = fmt.Sprintf("Вроде как всё правильно, поздравляю вы внутри.")
+				msg.ParseMode = "Markdown"
+			case "anime":
+				msg.Text = fmt.Sprintf("Для пидоров. Вот к примеру таких как %s (@%s)", update.Message.From.FirstName, update.Message.From.UserName)
+			case "soldat":
+				msg.Text = "https://www.youtube.com/watch?v=POb02mjj2zE"
+			case "bonk":
+				msgSticker := tgbotapi.NewStickerShare(update.Message.Chat.ID, "CAADAgAD_QEAAvNWPxeLf-J5M600mhYE")
+				bot.Send(msgSticker)
+			default:
+				msg.Text = "Шото ты хуйню ввёл. Попробуй ЕЩЁ раз!"
+			}
+			if len(msg.Text) == 0 {
+				continue
+			}
+			_, err = bot.Send(msg)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
 			continue
 		}
 
@@ -72,6 +173,7 @@ func main() {
 			var fc tgbotapi.FileConfig
 
 			fc.FileID = update.Message.Sticker.FileID
+			log.Println(update.Message.Sticker.FileID)
 
 			pathURL, err := bot.GetFileDirectURL(FileID)
 			log.Println(pathURL)
