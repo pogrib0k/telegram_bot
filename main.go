@@ -156,7 +156,7 @@ func main() {
 			}
 			_, err = bot.Send(msg)
 			if err != nil {
-				log.Fatal(err.Error())
+				log.Println(err.Error())
 			}
 			continue
 		}
