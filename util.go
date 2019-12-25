@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
+
 // UserCooldown структура для кулдауна
 type UserCooldown struct {
 	time int64
@@ -13,8 +15,8 @@ type UserCooldown struct {
 
 // BotUser данные пользывателя, который пишет боту
 type BotUser struct {
-	ID int
-	Login string
+	ID       int
+	Login    string
 	LoggedIn bool
 }
 
@@ -52,8 +54,8 @@ func CutTwoArguments(str string) (string, string) {
 	return "", ""
 }
 
-// CheckCooldown а ты подумай по названию
-func CheckCooldown(cmd string, ID int, cooldown int64) int {
+// GetCooldown а ты подумай по названию
+func GetCooldown(cmd string, ID int, cooldown int64) int {
 
 	if cooldowns[cmd] == nil {
 		cooldowns[cmd] = make(map[int]*UserCooldown)
@@ -64,12 +66,21 @@ func CheckCooldown(cmd string, ID int, cooldown int64) int {
 	return -1
 }
 
-// SetCooldown устанавливаем откат жопы
-func SetCooldown (cmd string, ID int) {
+// SetCooldown устанавливаем откат жопы для челика
+func SetCooldown(cmd string, ID int) {
 	cooldowns[cmd][ID] = &UserCooldown{
 		time: time.Now().Unix(),
 		got:  false,
 	}
 }
 
-
+func CheckCooldown(cmd string, ID int, time int64) (string, bool) {
+	if cooldown := GetCooldown(cmd, ID, time); cooldown > 0 {
+		if !cooldowns[cmd][ID].got {
+			cooldowns[cmd][ID].got = true
+			return fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown), true
+		}
+		return "", true
+	}
+	return "", false
+}
