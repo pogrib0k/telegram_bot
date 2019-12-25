@@ -1,8 +1,26 @@
 package main
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+	"time"
+)
+// UserCooldown структура для кулдауна
+type UserCooldown struct {
+	time int64
+	got  bool
+}
 
-import "regexp"
+// BotUser данные пользывателя, который пишет боту
+type BotUser struct {
+	ID int
+	Login string
+	LoggedIn bool
+}
+
+var loggedUsers = make(map[int]*BotUser)
+
+var cooldowns = make(map[string]map[int]*UserCooldown)
 
 // Check делает check, ну шо го ты доволен?! А?!
 func Check(path string) bool {
@@ -33,3 +51,25 @@ func CutTwoArguments(str string) (string, string) {
 	}
 	return "", ""
 }
+
+// CheckCooldown а ты подумай по названию
+func CheckCooldown(cmd string, ID int, cooldown int64) int {
+
+	if cooldowns[cmd] == nil {
+		cooldowns[cmd] = make(map[int]*UserCooldown)
+	}
+	if v, ok := cooldowns[cmd][ID]; ok == true && time.Now().Unix()-v.time < cooldown {
+		return int(v.time + cooldown - time.Now().Unix())
+	}
+	return -1
+}
+
+// SetCooldown устанавливаем откат жопы
+func SetCooldown (cmd string, ID int) {
+	cooldowns[cmd][ID] = &UserCooldown{
+		time: time.Now().Unix(),
+		got:  false,
+	}
+}
+
+

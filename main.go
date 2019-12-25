@@ -24,6 +24,7 @@ func (d dbLogger) AfterQuery(q *pg.QueryEvent) {
 	fmt.Println(q.FormattedQuery())
 }
 
+// User данные про пользователя для запроса в БД
 type User struct {
 	ID       int64
 	Name     string
@@ -87,8 +88,26 @@ func main() {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
 			switch update.Message.Command() {
 			case "ping":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, 10); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
 				msg.Text = "pong"
+				cooldowns[update.Message.Command()][update.Message.From.ID] = &UserCooldown{
+					time: time.Now().Unix(),
+					got:  false,
+				}
 			case "register":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, int64(time.Hour.Seconds())); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
 				arg1, arg2 := CutTwoArguments(update.Message.CommandArguments())
 				if arg1 == "" || arg2 == "" {
 					msg.Text = `Неправильно введена команда.
@@ -115,7 +134,16 @@ func main() {
 				}
 				msg.Text = fmt.Sprintf("Ваш логин - `%s`, ваш пароль - `%s`. Вас зарегистрировали, поэтому вы ЛОХ.", arg1, arg2)
 				msg.ParseMode = "Markdown"
+				SetCooldown(update.Message.Command(), update.Message.From.ID)
+
 			case "login":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, int64(time.Minute.Seconds())); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
 				arg1, arg2 := CutTwoArguments(update.Message.CommandArguments())
 				if arg1 == "" || arg2 == "" {
 					msg.Text = `Неправильно введена команда.
@@ -141,15 +169,65 @@ func main() {
 				log.Println(user)
 				msg.Text = fmt.Sprintf("Вроде как всё правильно, поздравляю вы внутри.")
 				msg.ParseMode = "Markdown"
+
+				SetCooldown(update.Message.Command(), update.Message.From.ID)
+
+				cooldowns[update.Message.Command()][update.Message.From.ID] = &UserCooldown{
+					time: time.Now().Unix(),
+					got:  false,
+				}
 			case "anime":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, int64(time.Second.Seconds()*10)); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
 				msg.Text = fmt.Sprintf("Для пидоров. Вот к примеру таких как %s (@%s)", update.Message.From.FirstName, update.Message.From.UserName)
+				SetCooldown(update.Message.Command(), update.Message.From.ID)
+
 			case "soldat":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, int64(time.Minute.Seconds())); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
+				if v, ok := loggedUsers[update.Message.From.ID]; !ok || v == nil || !v.LoggedIn {
+					msg.Text = "Я не знаю, кто вы. Залогинтесь, пожалуйста."
+					SetCooldown(update.Message.Command(), update.Message.From.ID)
+					break
+				}
 				msg.Text = "https://www.youtube.com/watch?v=POb02mjj2zE"
+				SetCooldown(update.Message.Command(), update.Message.From.ID)
 			case "bonk":
+				if cooldown := CheckCooldown(update.Message.Command(), update.Message.From.ID, int64(time.Second.Seconds()*2)); cooldown > 0 {
+					if !cooldowns[update.Message.Command()][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns[update.Message.Command()][update.Message.From.ID].got = true
+					}
+					break
+				}
 				msgSticker := tgbotapi.NewStickerShare(update.Message.Chat.ID, "CAADAgAD_QEAAvNWPxeLf-J5M600mhYE")
 				bot.Send(msgSticker)
 			default:
-				msg.Text = "Шото ты хуйню ввёл. Попробуй ЕЩЁ раз!"
+				if cooldown := CheckCooldown("default", update.Message.From.ID, int64(time.Minute.Seconds())); cooldown > 0 {
+					if !cooldowns["default"][update.Message.From.ID].got {
+						msg.Text = fmt.Sprintf("Ещё не время подожди где-то %d секунд.", cooldown)
+						cooldowns["default"][update.Message.From.ID].got = true
+					}
+					break
+				}
+				audioMessage := tgbotapi.NewVoiceUpload(update.Message.Chat.ID, "tryAgain.mp3")
+				audioMessage.Caption = "Шото ты хуйню ввёл. Попробуй *ЕЩЁ* раз!"
+				audioMessage.ParseMode = "Markdown"
+				bot.Send(audioMessage)
+				cooldowns["default"][update.Message.From.ID] = &UserCooldown{
+					time: time.Now().Unix(),
+					got:  false,
+				}
 			}
 			if len(msg.Text) == 0 {
 				continue
